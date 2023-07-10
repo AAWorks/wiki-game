@@ -21,7 +21,11 @@ let get_linked_articles contents : string list =
   $$ "a[href]"
   |> to_list
   |> List.map ~f:(fun a -> R.attribute "href" a)
-  |> List.filter ~f:(fun link -> Option.is_none (namespace link))
+  |> List.filter ~f:(fun link ->
+       Option.is_none (namespace link)
+       && String.is_prefix link ~prefix:"/wiki/")
+  |> List.sort ~compare:(fun a b -> String.compare a b)
+  |> List.remove_consecutive_duplicates ~equal:(fun a b -> String.equal a b)
 ;;
 
 let print_links_command =
