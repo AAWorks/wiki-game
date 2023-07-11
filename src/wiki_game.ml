@@ -1,6 +1,26 @@
 open! Core
 open! Wikipedia_namespace
 
+module Article = struct
+  module T = struct
+    type t = {
+      url: String.t;
+      title: String.t;
+    } [@@deriving compare, sexp]
+  end
+
+  include T
+  include Comparable.Make (T)
+
+  let of_url s =
+    let url_list = String.split s ~on:'/' in 
+    {url = s; title = List.last_exn url_list}
+  ;;
+
+  let equal t1 t2 = String.equal t1.url t2.url
+end
+
+
 (* [get_linked_articles] should return a list of wikipedia article lengths
    contained in the input.
 
@@ -44,12 +64,43 @@ let print_links_command =
    a DOT file. It should use the [how_to_fetch] argument along with
    [File_fetcher] to fetch the articles so that the implementation can be
    tested locally on the small dataset in the ../resources/wiki directory. *)
+
+let get_linked_articles_as_records contents : Article.t list =
+  let open Soup in
+  parse contents
+  $$ "a[href]"
+  |> to_list
+  |> List.map ~f:(fun a -> R.attribute "href" a)
+  |> List.filter ~f:(fun link ->
+        Option.is_none (namespace link)
+        && String.is_prefix link ~prefix:"/wiki/")
+  |> List.sort ~compare:(fun a b -> String.compare a b)
+  |> List.remove_consecutive_duplicates ~equal:(fun a b -> String.equal a b)
+  |> List.map ~f:(
+    fun url -> Article.of_url url
+  )
+;;
+
+let rec bfs ~q ~explored : Article.t list =
+  match q with
+  | [] -> explored
+  | head :: tail ->
+    let new_explored =
+      List.fold
+        ( ~person:head |> get_linked_articles_as_records)
+        ~init:[]
+        ~f:(fun acc article ->
+        if not (List.mem explored article ~equal:Article.equal)
+        then acc @ [ article ]
+        else acc)
+    in
+    let new_q = tail @ new_explored in
+    bfs network ~q:new_q ~explored:(explored @ new_explored)
+;;
+
 let visualize ?(max_depth = 3) ~origin ~output_file ~how_to_fetch () : unit =
-  ignore (max_depth : int);
-  ignore (origin : string);
-  ignore (output_file : File_path.t);
-  ignore (how_to_fetch : File_fetcher.How_to_fetch.t);
-  failwith "TODO"
+  let q = [ person ] in
+  let explored = [ person ] in
 ;;
 
 let visualize_command =
