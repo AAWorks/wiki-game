@@ -1,25 +1,44 @@
 open! Core
 open! Wikipedia_namespace
+open! File_fetcher
 
 module Article = struct
   module T = struct
-    type t = {
-      url: String.t;
-      title: String.t;
-    } [@@deriving compare, sexp]
+    type t =
+      { url : String.t
+      ; title : String.t
+      }
+    [@@deriving compare, sexp, hash]
   end
 
   include T
   include Comparable.Make (T)
 
   let of_url s =
-    let url_list = String.split s ~on:'/' in 
-    {url = s; title = List.last_exn url_list}
+    let url_list = String.split s ~on:'/' in
+    { url = s; title = List.last_exn url_list }
   ;;
 
   let equal t1 t2 = String.equal t1.url t2.url
+  let url t = t.url
+  let title t = t.title
 end
 
+module Connection = struct
+  module T = struct
+    type t = Article.t * Article.t [@@deriving compare, sexp]
+  end
+
+  (* This funky syntax is necessary to implement sets of [Connection.t]s.
+     This is needed to defined our [Network.t] type later. Using this
+     [Comparable.Make] functor also gives us immutable maps, which might come
+     in handy later. *)
+  include Comparable.Make (T)
+
+  let equal (art11, art12) (art21, art22) =
+    Article.equal art11 art21 && Article.equal art12 art22
+  ;;
+end
 
 (* [get_linked_articles] should return a list of wikipedia article lengths
    contained in the input.
@@ -59,6 +78,24 @@ let print_links_command =
         List.iter (get_linked_articles contents) ~f:print_endline]
 ;;
 
+module G = Graph.Imperative.Graph.Concrete (Article)
+
+module Dot = Graph.Graphviz.Dot (struct
+  include G
+
+  (* These functions can be changed to tweak the appearance of the generated
+     graph. Check out the ocamlgraph graphviz API
+     (https://github.com/backtracking/ocamlgraph/blob/master/src/graphviz.mli)
+     for examples of what values can be set here. *)
+  let edge_attributes _ = [ `Dir `None ]
+  let default_edge_attributes _ = []
+  let get_subgraph _ = None
+  let vertex_attributes v = [ `Shape `Box; `Label v; `Fillcolor 1000 ]
+  let vertex_name v = v
+  let default_vertex_attributes _ = []
+  let graph_attributes _ = []
+end)
+
 (* [visualize] should explore all linked articles up to a distance of
    [max_depth] away from the given [origin] article, and output the result as
    a DOT file. It should use the [how_to_fetch] argument along with
@@ -72,35 +109,63 @@ let get_linked_articles_as_records contents : Article.t list =
   |> to_list
   |> List.map ~f:(fun a -> R.attribute "href" a)
   |> List.filter ~f:(fun link ->
-        Option.is_none (namespace link)
-        && String.is_prefix link ~prefix:"/wiki/")
+       Option.is_none (namespace link)
+       && String.is_prefix link ~prefix:"/wiki/")
   |> List.sort ~compare:(fun a b -> String.compare a b)
   |> List.remove_consecutive_duplicates ~equal:(fun a b -> String.equal a b)
-  |> List.map ~f:(
-    fun url -> Article.of_url url
-  )
+  |> List.map ~f:(fun url -> Article.of_url url)
 ;;
 
-let rec bfs ~q ~explored : Article.t list =
+let rec bfs ~depth ~q ~explored ~(howfetch : How_to_fetch.t)
+  : (Article.t * Article.t) list
+  =
   match q with
   | [] -> explored
   | head :: tail ->
-    let new_explored =
-      List.fold
-        ( ~person:head |> get_linked_articles_as_records)
-        ~init:[]
-        ~f:(fun acc article ->
-        if not (List.mem explored article ~equal:Article.equal)
-        then acc @ [ article ]
-        else acc)
-    in
-    let new_q = tail @ new_explored in
-    bfs network ~q:new_q ~explored:(explored @ new_explored)
+    if depth = 0
+    then explored
+    else (
+      let new_explored =
+        List.fold
+          (fetch_exn howfetch ~resource:(Article.url head)
+           |> get_linked_articles_as_records)
+          ~init:[]
+          ~f:(fun acc article ->
+            if not
+                 (List.mem explored (head, article) ~equal:Connection.equal)
+            then acc @ [ head, article ]
+            else acc)
+      in
+      let new_q = tail @ List.map new_explored ~f:(fun (_, art) -> art) in
+      bfs
+        ~depth:(depth - 1 + List.length new_explored)
+        ~q:new_q
+        ~explored:(explored @ new_explored)
+        ~howfetch)
 ;;
 
-let visualize ?(max_depth = 3) ~origin ~output_file ~how_to_fetch () : unit =
-  let q = [ person ] in
-  let explored = [ person ] in
+let visualize
+  ?(max_depth = 3)
+  ~(origin : Article.t)
+  ~output_file
+  ~how_to_fetch
+  ()
+  : unit
+  =
+  let q = [ origin ] in
+  let explored = [ origin, origin ] in
+  let network =
+    bfs ~depth:max_depth ~q ~explored ~howfetch:how_to_fetch
+    |> Connection.Set.of_list
+  in
+  let graph = G.create () in
+  Set.iter network ~f:(fun group ->
+    (* [G.add_edge] auomatically adds the endpoints as vertices in the graph
+       if they don't already exist. *)
+    G.add_edge_e graph group);
+  Dot.output_graph
+    (Out_channel.create (File_path.to_string output_file))
+    graph
 ;;
 
 let visualize_command =
@@ -124,6 +189,7 @@ let visualize_command =
           ~doc:"FILE where to write generated graph"
       in
       fun () ->
+        let origin = Article.of_url origin in
         visualize ~max_depth ~origin ~output_file ~how_to_fetch ();
         printf !"Done! Wrote dot file to %{File_path}\n%!" output_file]
 ;;

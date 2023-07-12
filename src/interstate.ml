@@ -80,7 +80,7 @@ module Dot = Graph.Graphviz.Dot (struct
      graph. Check out the ocamlgraph graphviz API
      (https://github.com/backtracking/ocamlgraph/blob/master/src/graphviz.mli)
      for examples of what values can be set here. *)
-  let edge_attributes _ = [ `Dir `None ] (*bish wtf*)
+  let edge_attributes _ = [ `Dir `None ]
   let default_edge_attributes _ = []
   let get_subgraph _ = None
   let vertex_attributes v = [ `Shape `Box; `Label v; `Fillcolor 1000 ]
