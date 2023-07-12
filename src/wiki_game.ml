@@ -220,12 +220,41 @@ let visualize_command =
 
    [max_depth] is useful to limit the time the program spends exploring the
    graph. *)
+
+let rec shortest_path ~depth ~q ~parent ~(explored: ((Article.t * Article.t) * Article.t) list) ~destination ~how_to_fetch =
+  match q with
+  | [] -> explored
+  | head :: tail ->
+    if depth = 0 || Article.equal head destination
+    then explored
+    else (
+      let new_explored =
+        List.fold
+          (fetch_exn how_to_fetch ~resource:(Article.url head)
+           |> get_linked_articles_as_records)
+          ~init:[]
+          ~f:(fun acc article ->
+            if not
+                 (List.mem explored (head, article) ~equal:Connection.equal
+                  || List.mem
+                       explored
+                       (article, head)
+                       ~equal:Connection.equal)
+            then acc @ [ ((head, article), parent) ]
+            else acc)
+      in
+      let new_q = tail @ List.map new_explored ~f:(fun (_, art) -> art) in
+      shortest_path
+        ~depth:(depth - 1 + List.length new_explored)
+        ~q:new_q
+        ~parent: head
+        ~explored:(explored @ new_explored) 
+        ~destination
+        ~how_to_fetch)
+;;
+
 let find_path ?(max_depth = 3) ~origin ~destination ~how_to_fetch () =
-  ignore (max_depth : int);
-  ignore (origin : string);
-  ignore (destination : string);
-  ignore (how_to_fetch : File_fetcher.How_to_fetch.t);
-  failwith "TODO"
+  
 ;;
 
 let find_path_command =
