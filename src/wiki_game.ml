@@ -109,7 +109,11 @@ let rec bfs ~depth ~q ~explored ~(howfetch : How_to_fetch.t)
           ~init:[]
           ~f:(fun acc article ->
             if not
-                 (List.mem explored (head, article) ~equal:Connection.equal)
+                 (List.mem explored (head, article) ~equal:Connection.equal
+                  || List.mem
+                       explored
+                       (article, head)
+                       ~equal:Connection.equal)
             then acc @ [ head, article ]
             else acc)
       in
