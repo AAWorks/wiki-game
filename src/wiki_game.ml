@@ -1,12 +1,13 @@
 open! Core
 open! Wikipedia_namespace
 open! File_fetcher
+module Title = String
 
 module Article = struct
   module T = struct
     type t =
       { url : String.t
-      ; title : String.t
+      ; title : Title.t
       }
     [@@deriving compare, sexp, hash]
   end
@@ -78,30 +79,6 @@ let print_links_command =
         List.iter (get_linked_articles contents) ~f:print_endline]
 ;;
 
-module G = Graph.Imperative.Graph.Concrete (Article)
-
-module Dot = Graph.Graphviz.Dot (struct
-  include G
-
-  (* These functions can be changed to tweak the appearance of the generated
-     graph. Check out the ocamlgraph graphviz API
-     (https://github.com/backtracking/ocamlgraph/blob/master/src/graphviz.mli)
-     for examples of what values can be set here. *)
-  let edge_attributes _ = [ `Dir `None ]
-  let default_edge_attributes _ = []
-  let get_subgraph _ = None
-  let vertex_attributes v = [ `Shape `Box; `Label v; `Fillcolor 1000 ]
-  let vertex_name v = v
-  let default_vertex_attributes _ = []
-  let graph_attributes _ = []
-end)
-
-(* [visualize] should explore all linked articles up to a distance of
-   [max_depth] away from the given [origin] article, and output the result as
-   a DOT file. It should use the [how_to_fetch] argument along with
-   [File_fetcher] to fetch the articles so that the implementation can be
-   tested locally on the small dataset in the ../resources/wiki directory. *)
-
 let get_linked_articles_as_records contents : Article.t list =
   let open Soup in
   parse contents
@@ -144,6 +121,38 @@ let rec bfs ~depth ~q ~explored ~(howfetch : How_to_fetch.t)
         ~howfetch)
 ;;
 
+let get_network ~max_depth ~(origin : Article.t) ~how_to_fetch =
+  let q = [ origin ] in
+  let explored = [ origin, origin ] in
+  match bfs ~depth:max_depth ~q ~explored ~howfetch:how_to_fetch with
+  | _head :: tail -> Connection.Set.of_list tail
+  | [] -> Connection.Set.empty
+;;
+
+module G = Graph.Imperative.Graph.Concrete (Title)
+
+module Dot = Graph.Graphviz.Dot (struct
+  include G
+
+  (* These functions can be changed to tweak the appearance of the generated
+     graph. Check out the ocamlgraph graphviz API
+     (https://github.com/backtracking/ocamlgraph/blob/master/src/graphviz.mli)
+     for examples of what values can be set here. *)
+  let edge_attributes _ = [ `Dir `None ]
+  let default_edge_attributes _ = []
+  let get_subgraph _ = None
+  let vertex_attributes v = [ `Shape `Box; `Label v; `Fillcolor 1000 ]
+  let vertex_name v = v
+  let default_vertex_attributes _ = []
+  let graph_attributes _ = []
+end)
+
+(* [visualize] should explore all linked articles up to a distance of
+   [max_depth] away from the given [origin] article, and output the result as
+   a DOT file. It should use the [how_to_fetch] argument along with
+   [File_fetcher] to fetch the articles so that the implementation can be
+   tested locally on the small dataset in the ../resources/wiki directory. *)
+
 let visualize
   ?(max_depth = 3)
   ~(origin : Article.t)
@@ -152,16 +161,20 @@ let visualize
   ()
   : unit
   =
-  let q = [ origin ] in
-  let explored = [ origin, origin ] in
-  let network =
-    bfs ~depth:max_depth ~q ~explored ~howfetch:how_to_fetch
-    |> Connection.Set.of_list
-  in
+  let network = get_network ~max_depth ~origin ~how_to_fetch in
   let graph = G.create () in
-  Set.iter network ~f:(fun group ->
+  Set.iter network ~f:(fun (article1, article2) ->
     (* [G.add_edge] auomatically adds the endpoints as vertices in the graph
        if they don't already exist. *)
+    let title1, title2 = Article.title article1, Article.title article2 in
+    let group =
+      ( title1
+        |> String.substr_replace_all ~pattern:"(" ~with_:""
+        |> String.substr_replace_all ~pattern:")" ~with_:""
+      , title2
+        |> String.substr_replace_all ~pattern:"(" ~with_:""
+        |> String.substr_replace_all ~pattern:")" ~with_:"" )
+    in
     G.add_edge_e graph group);
   Dot.output_graph
     (Out_channel.create (File_path.to_string output_file))
