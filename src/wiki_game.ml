@@ -90,6 +90,10 @@ let get_linked_articles_as_records contents : Article.t list =
        && String.is_prefix link ~prefix:"/wiki/")
   |> List.sort ~compare:(fun a b -> String.compare a b)
   |> List.remove_consecutive_duplicates ~equal:(fun a b -> String.equal a b)
+  |> List.map ~f:(fun link ->
+       if not (String.is_prefix link ~prefix:"https://en.wikipedia.org")
+       then "https://en.wikipedia.org" ^ link
+       else link)
   |> List.map ~f:(fun url -> Article.of_url url)
 ;;
 
@@ -221,11 +225,16 @@ let visualize_command =
    [max_depth] is useful to limit the time the program spends exploring the
    graph. *)
 
-let rec shortest_path ~depth ~q ~parent ~(explored: ((Article.t * Article.t) * Article.t) list) ~destination ~how_to_fetch =
+let rec shortest_path
+  ~q
+  ~(explored : (Article.t * Article.t) list)
+  ~destination
+  ~how_to_fetch
+  =
   match q with
   | [] -> explored
   | head :: tail ->
-    if depth = 0 || Article.equal head destination
+    if Article.equal head destination
     then explored
     else (
       let new_explored =
@@ -240,21 +249,49 @@ let rec shortest_path ~depth ~q ~parent ~(explored: ((Article.t * Article.t) * A
                        explored
                        (article, head)
                        ~equal:Connection.equal)
-            then acc @ [ ((head, article), parent) ]
+            then acc @ [ head, article ]
             else acc)
       in
       let new_q = tail @ List.map new_explored ~f:(fun (_, art) -> art) in
       shortest_path
-        ~depth:(depth - 1 + List.length new_explored)
         ~q:new_q
-        ~parent: head
-        ~explored:(explored @ new_explored) 
+        ~explored:(explored @ new_explored)
         ~destination
         ~how_to_fetch)
 ;;
 
+let rec backtrack explored destination origin path : Article.t list =
+  (* List.iter explored ~f:(fun (a, b) -> print_endline (Article.title a ^ "
+     : " ^ Article.title b)); *)
+  match
+    List.find_exn explored ~f:(fun (_, node) ->
+      (*print_endline (Article.url destination); *)
+      Article.equal node destination)
+  with
+  | parent, node ->
+    if Article.equal node origin
+    then [ node ] @ path
+    else
+      (* print_endline (Article.title node ^ " -> " ^ Article.title
+         parent); *)
+      backtrack explored parent origin ([ node ] @ path)
+;;
+
+let get_path ?(max_depth = 3) ~origin ~destination ~how_to_fetch parse =
+  ignore max_depth;
+  let origin = parse origin in
+  let destination = parse destination in
+  match
+    shortest_path ~q:[ origin ] ~explored:[] ~destination ~how_to_fetch
+  with
+  | [] -> print_endline "No Solution"
+  | explored ->
+    backtrack explored destination origin []
+    |> List.iter ~f:(fun art -> print_endline (Article.title art))
+;;
+
 let find_path ?(max_depth = 3) ~origin ~destination ~how_to_fetch () =
-  
+  get_path ~max_depth ~origin ~destination ~how_to_fetch Article.of_url
 ;;
 
 let find_path_command =
@@ -274,10 +311,7 @@ let find_path_command =
           (optional_with_default 10 int)
           ~doc:"INT maximum length of path to search for (default 10)"
       in
-      fun () ->
-        match find_path ~max_depth ~origin ~destination ~how_to_fetch () with
-        | None -> print_endline "No path found!"
-        | Some trace -> List.iter trace ~f:print_endline]
+      fun () -> find_path ~max_depth ~origin ~destination ~how_to_fetch ()]
 ;;
 
 let command =

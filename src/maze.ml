@@ -62,18 +62,22 @@ let get_board board_list =
 ;;
 
 let rec dfs ~(map : Cell.t Position.Map.t) ~parent ~cell ~path : Cell.t list =
-  let new_path = path @ [cell] in 
-  let children = List.map Position.offsets ~f:(fun offset -> 
-  let new_pos = offset (Cell.pos cell) in
-  match Map.find_exn map new_pos with 
-  | Some child -> if not (Cell.equal parent child) then child else assert false
-  | None -> assert false) in
-  if Cell.is_end cell then new_path else (
-    if not (Cell.is_wall cell) then (
-      List.fold children ~init:new_path ~f: (fun acc child_cell -> 
-        dfs ~map ~parent:cell ~cell:child_cell ~path:acc)
-        ) else []
-    ) else []
+  let new_path = path @ [ cell ] in
+  let children =
+    List.map Position.offsets ~f:(fun offset ->
+      let new_pos = offset (Cell.pos cell) in
+      match Map.find map new_pos with
+      | Some child ->
+        if not (Cell.equal parent child) then child else assert false
+      | None -> assert false)
+  in
+  if Cell.is_end cell
+  then new_path
+  else if not (Cell.is_wall cell)
+  then
+    List.fold children ~init:new_path ~f:(fun acc child_cell ->
+      dfs ~map ~parent:cell ~cell:child_cell ~path:acc)
+  else []
 ;;
 
 let solve input_file : unit =
