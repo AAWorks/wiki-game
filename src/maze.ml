@@ -36,7 +36,7 @@ module Cell = struct
   let equal t1 t2 = Position.equal t1.pos t2.pos
   let pos t = t.pos
   let is_end t = String.equal t.value "E"
-  let is_wall t = String.equal t.value "#"
+  let is_empty t = String.equal t.value "."
   let is_start t = String.equal t.value "S"
 end
 
@@ -62,22 +62,25 @@ let get_board board_list =
 ;;
 
 let rec dfs ~(map : Cell.t Position.Map.t) ~parent ~cell ~path : Cell.t list =
+  (* print_s [%message "" (cell : Cell.t)]; *)
   let new_path = path @ [ cell ] in
   let children =
     List.map Position.offsets ~f:(fun offset ->
       let new_pos = offset (Cell.pos cell) in
-      match Map.find map new_pos with
-      | Some child ->
-        if not (Cell.equal parent child) then child else assert false
-      | None -> assert false)
+      Map.find map new_pos)
+    |> List.filter_opt
   in
+  let filtered_children =
+    children |> List.filter ~f:(fun child -> not (Cell.equal parent child))
+  in
+  (* print_s [%message "" (filtered_children : Cell.t list)]; *)
   if Cell.is_end cell
   then new_path
-  else if not (Cell.is_wall cell)
-  then
-    List.fold children ~init:new_path ~f:(fun acc child_cell ->
-      dfs ~map ~parent:cell ~cell:child_cell ~path:acc)
-  else []
+  else
+    List.fold filtered_children ~init:new_path ~f:(fun acc child_cell ->
+      if Cell.is_empty child_cell
+      then dfs ~map ~parent:cell ~cell:child_cell ~path:acc
+      else acc)
 ;;
 
 let solve input_file : unit =
@@ -86,7 +89,7 @@ let solve input_file : unit =
   let cell = List.find_exn cell_list ~f:(fun cell -> Cell.is_start cell) in
   let map = get_board cell_list in
   let solution = dfs ~map ~parent:cell ~cell ~path:[] in
-  print_s [%message "" (solution : Cell.t list)];
+  (* print_s [%message "" (solution : Cell.t list)]; *)
   List.iter solution ~f:(fun cell ->
     print_endline (Cell.pos cell |> Position.to_string))
 ;;
