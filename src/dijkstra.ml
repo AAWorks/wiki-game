@@ -197,36 +197,25 @@ module Nodes = struct
   ;;
 end
 
-
-
 (* Exercise 6: Using the functions and types above, implement Dijkstras graph
    search algorithm! Remember to reenable unused warnings by deleting the
    first line of this file. *)
-let dijkstra edges curr destination q = 
-  match q with
-  | [] -> edges
-  | head :: tail ->
-    if Node_id.equal curr destination
-    then edges
-    else (
-      let new_q =
-        List.fold
-          (Edges.neighbors edges head)
-          ~init:[]
-          ~f:(fun acc (nodeid, dist) ->
-            then acc @ [ head, article ]
-            else acc)
-      in
-      let new_q = tail @ List.map new_explored ~f:(fun (_, art) -> art) in
-      dijkstra
-        ~depth:(depth - 1 + List.length new_explored)
-        ~q:new_q
-        ~explored:(explored @ new_explored)
-        ~howfetch)
 
-let shortest_path ~edges ~origin ~destination : Node_id.t list = 
-  let q = [] in 
+let rec dijkstra edges curr destination =
+  let neighbors = Edges.neighbors edges curr in
+  let edges_map = Nodes.of_edges edges in
+  let next_node = Nodes.next_node edges_map in
+  if Node_id.equal curr destination
+  then edges_map
+  else (
+    match next_node with
+    | Some (next_node, (_, _)) -> dijkstra edges next_node destination
+    | None -> edges_map)
+;;
 
+let shortest_path ~edges ~origin ~destination : Node_id.t list =
+  dijkstra edges origin destination |> fun t -> Nodes.path t destination
+;;
 
 let%expect_test ("shortest_path" [@tags "disabled"]) =
   let n = Node_id.create in
